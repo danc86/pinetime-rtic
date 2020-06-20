@@ -78,6 +78,9 @@ const APP: () = {
         button: Pin<Input<Floating>>,
         button_debouncer: Debouncer<u8, Repeat6>,
 
+        // Watchdog timer
+        wdt: hal::target::WDT,
+
         // Styles
         text_style: TextStyleBuilder<Rgb565, Font12x16>,
 
@@ -124,6 +127,7 @@ const APP: () = {
             TIMER0,
             TIMER1,
             TIMER2,
+            WDT,
             ..
         } = cx.device;
 
@@ -166,6 +170,9 @@ const APP: () = {
         // Enable button
         gpio.p0_15.into_push_pull_output(Level::High);
         let button = gpio.p0_13.into_floating_input().degrade();
+
+        // Watchdog timer is already initialized by the bootloader
+        let wdt = WDT;
 
         // Get bluetooth device address
         let device_address = get_device_address();
@@ -284,6 +291,7 @@ const APP: () = {
             backlight,
             button,
             button_debouncer: debounce_6(),
+            wdt,
             text_style,
             ferris,
 
@@ -403,9 +411,14 @@ const APP: () = {
         cx.schedule.write_ferris(cx.scheduled + 25.hz()).unwrap();
     }
 
-    #[task(resources = [lcd, text_style, counter], schedule = [write_counter])]
+    #[task(resources = [lcd, text_style, counter, button, wdt], schedule = [write_counter])]
     fn write_counter(cx: write_counter::Context) {
         rprintln!("Counter is {}", cx.resources.counter);
+
+        // Reload the watchdog timer, if the button isn't held down
+        if !cx.resources.button.is_high().unwrap() {
+            cx.resources.wdt.rr[0].write(|w| w.rr().reload());
+        }
 
         // Write counter to the display
         let mut buf = [0u8; 20];
